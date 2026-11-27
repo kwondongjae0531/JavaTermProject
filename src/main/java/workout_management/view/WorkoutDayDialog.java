@@ -83,7 +83,14 @@ public class WorkoutDayDialog extends JPanel {
             new HashMap<>();
 
     private final JButton routineButton =
-            button("이전 운동 불러오기", false);
+            button("불러오기", false);
+
+    private final RoundedPanel routineCard =
+            new RoundedPanel(CARD, CARD_ARC);
+
+    private final JLabel routineDate = label("", 12, MUTED);
+    private final JLabel routineName = bold("", 15, TEXT);
+    private final JLabel routineCount = label("", 12, MUTED);
 
     private final JButton missingButton =
             button("+ 새 운동 만들기", false);
@@ -306,15 +313,32 @@ public class WorkoutDayDialog extends JPanel {
 
         // 이전 운동 종목을 한 번에 불러오기
 
-        fullWidth(routineButton, 42);
+        routineCard.setLayout(new BorderLayout(12, 0));
+        routineCard.setBorder(new EmptyBorder(12, 14, 12, 12));
+
+        JPanel routineInfo = vertical();
+        routineInfo.add(routineDate);
+        routineInfo.add(Box.createVerticalStrut(4));
+        routineInfo.add(routineName);
+        routineInfo.add(Box.createVerticalStrut(3));
+        routineInfo.add(routineCount);
+        alignLeft(routineInfo);
 
         routineButton.setBackground(FIELD);
         routineButton.setFont(AppTheme.bold(13));
-
+        routineButton.setPreferredSize(new Dimension(90, 36));
+        routineButton.setMargin(new Insets(0, 0, 0, 0));
         routineButton.addActionListener(e ->
                 runAction(this::loadPreviousRoutine));
 
-        top.add(routineButton);
+        JPanel routineAction = new JPanel(new GridBagLayout());
+        routineAction.setOpaque(false);
+        routineAction.add(routineButton);
+
+        routineCard.add(routineInfo, BorderLayout.CENTER);
+        routineCard.add(routineAction, BorderLayout.EAST);
+        routineCard.setVisible(false);
+        top.add(routineCard);
 
         JPanel countRow = new JPanel(new BorderLayout());
 
@@ -563,31 +587,37 @@ public class WorkoutDayDialog extends JPanel {
         Routine routine = routines.get(selectedPart);
 
         if (routine == null || !search.getText().isBlank()) {
-
-            routineButton.setVisible(false);
+            routineCard.setVisible(false);
             return;
         }
 
-        long count = routine.exercises().stream()
+        List<Exercise> available = routine.exercises().stream()
                 .filter(e -> findCard(e.getExerciseId()) == null)
-                .count();
+                .toList();
 
-        if (count == 0) {
-
-            routineButton.setVisible(false);
+        if (available.isEmpty()) {
+            routineCard.setVisible(false);
             return;
         }
-
-        String name = selectedPart.equals("전체")
-                ? "이전 운동" : "이전 " + selectedPart;
 
         String day = routine.date().format(
-                DateTimeFormatter.ofPattern("M/d"));
+                DateTimeFormatter.ofPattern("M월 d일"));
 
-        routineButton.setText(
-                name + " 불러오기 · " + day + " · " + count + "종목");
+        String part = selectedPart.equals("전체")
+                ? available.stream().map(Exercise::getBodyPart)
+                .distinct().count() == 1
+                  ? available.get(0).getBodyPart() : "여러 부위"
+                : selectedPart;
 
-        routineButton.setVisible(true);
+        routineDate.setText("지난 운동 · " + day + " · " + part);
+
+        String first = available.get(0).getExerciseName();
+        routineName.setText(first + (available.size() > 1
+                ? " 외 " + (available.size() - 1) + "종목" : ""));
+        routineName.setToolTipText(String.join(", ", available.stream()
+                .map(Exercise::getExerciseName).toList()));
+        routineCount.setText(available.size() + "종목 추가");
+        routineCard.setVisible(true);
     }
 
     private void loadPreviousRoutine() throws SQLException {
@@ -1144,7 +1174,7 @@ public class WorkoutDayDialog extends JPanel {
 
             if (previousRecord != null) {
 
-                JButton previous = textButton("이전 "
+                JButton previous = textButton("이전 기록 · "
                         + previousRecord.getWorkoutDate().format(
                         DateTimeFormatter.ofPattern("M/d")) + " ›");
 
@@ -1534,11 +1564,67 @@ public class WorkoutDayDialog extends JPanel {
 
             // 현재 세트 아래에만 이전 운동 기록 표시
 
-            previousHint.setVisible(!saved
+            updatePreviousHint();
+            previousHint.setVisible((!saved || dirty)
                     && !previousHint.getText().isBlank());
 
             panel.revalidate();
             panel.repaint();
+        }
+
+        // 같은 세트 번호의 지난 기록과 현재 입력값 비교
+        private void updatePreviousHint() {
+
+            SetRecord previous = owner.previousSet(setNo);
+            if (previous == null) {
+                previousHint.setText("");
+                return;
+            }
+
+            String oldWeight = formatWeight(previous.getWeightKg(),
+                    owner.bodyweight);
+            String unit = owner.bodyweight
+                    && previous.getWeightKg().signum() == 0 ? "" : "kg";
+            String old = "이전 " + oldWeight + unit
+                    + " × " + previous.getReps() + "회";
+
+            previousHint.setForeground(MUTED);
+            previousHint.setText(old);
+
+            try {
+                String value = weight.getText().trim();
+                BigDecimal kg = owner.bodyweight && (value.isEmpty()
+                        || value.equals("맨몸") || value.equalsIgnoreCase("BW"))
+                        ? BigDecimal.ZERO : new BigDecimal(value);
+                int count = Integer.parseInt(reps.getText().trim());
+
+                if (kg.signum() < 0 || kg.compareTo(new BigDecimal("99999.99")) > 0
+                        || kg.stripTrailingZeros().scale() > 2
+                        || count < 1 || count > 99999) return;
+
+                BigDecimal deltaKg = kg.subtract(previous.getWeightKg());
+                int deltaReps = count - previous.getReps();
+                int sign = deltaKg.signum();
+
+                StringJoiner delta = new StringJoiner(" / ");
+                if (sign != 0)
+                    delta.add((sign > 0 ? "+" : "")
+                            + deltaKg.stripTrailingZeros().toPlainString() + "kg");
+                if (deltaReps != 0)
+                    delta.add((deltaReps > 0 ? "+" : "") + deltaReps + "회");
+
+                if (delta.length() == 0) {
+                    previousHint.setText(old + "  ·  동일");
+                } else {
+                    previousHint.setText(old + "  ·  " + delta);
+                    if (sign >= 0 && deltaReps >= 0)
+                        previousHint.setForeground(GREEN);
+                    else if (sign <= 0 && deltaReps <= 0)
+                        previousHint.setForeground(RED);
+                }
+            } catch (NumberFormatException ignored) {
+                // 입력 중에는 이전 기록만 유지
+            }
         }
 
         Input readInput() {

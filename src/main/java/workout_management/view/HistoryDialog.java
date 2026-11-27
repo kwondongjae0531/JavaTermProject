@@ -29,6 +29,7 @@ public class HistoryDialog extends JPanel {
 
     private final Set<Long> selected = new HashSet<>();
     private final List<Long> visibleIds = new ArrayList<>();
+    private final Map<Row, List<Long>> dayIds = new HashMap<>();
 
     private final JTextField search = new JTextField();
 
@@ -508,6 +509,15 @@ public class HistoryDialog extends JPanel {
             panel.add(bold(row.name(), 15, TEXT),
                     BorderLayout.CENTER);
 
+            if (selectionMode) {
+                List<Long> ids = dayIds.getOrDefault(row, List.of());
+                boolean all = !ids.isEmpty() && selected.containsAll(ids);
+                boolean partial = !all && ids.stream().anyMatch(selected::contains);
+                JLabel check = new JLabel(new SelectionIcon(all, partial));
+                check.setPreferredSize(new Dimension(22, 22));
+                panel.add(check, BorderLayout.WEST);
+            }
+
             panel.add(label(row.meta(), 12, MUTED),
                     BorderLayout.EAST);
 
@@ -607,7 +617,9 @@ public class HistoryDialog extends JPanel {
                      index >= 0 && index < model.size();
                      index += direction) {
 
-                    if (model.get(index).record() != null) {
+                    Row row = model.get(index);
+                    if (row.record() != null
+                            || (selectionMode && row.type() == 0)) {
 
                         list.setSelectedIndex(index);
                         list.ensureIndexIsVisible(index);
@@ -621,7 +633,18 @@ public class HistoryDialog extends JPanel {
 
     private void activate(Row row) {
 
-        if (row == null || row.record() == null) return;
+        if (row == null) return;
+
+        if (selectionMode && row.type() == 0) {
+            List<Long> ids = dayIds.getOrDefault(row, List.of());
+            if (ids.isEmpty()) return;
+            if (selected.containsAll(ids)) selected.removeAll(ids);
+            else selected.addAll(ids);
+            updateSelection();
+            return;
+        }
+
+        if (row.record() == null) return;
 
         long id = row.record().getRecordId();
 
@@ -679,6 +702,7 @@ public class HistoryDialog extends JPanel {
 
         selected.clear();
         visibleIds.clear();
+        dayIds.clear();
         model.clear();
 
         for (WorkoutRecord record : sorted) {
@@ -751,10 +775,15 @@ public class HistoryDialog extends JPanel {
                             record.getRecordId(), 0))
                     .sum();
 
-            model.addElement(new Row(
+            Row dayRow = new Row(
                     0, title,
                     totalSets + "세트",
-                    null, true, false));
+                    null, true, false);
+            dayIds.put(dayRow, day.getValue().values().stream()
+                    .flatMap(Collection::stream)
+                    .map(WorkoutRecord::getRecordId)
+                    .toList());
+            model.addElement(dayRow);
 
             int current = 0;
 
@@ -865,8 +894,12 @@ public class HistoryDialog extends JPanel {
         }
 
         count.setText(selectionMode
-                ? selected.size() + "개 선택됨"
+                ? (selected.isEmpty() ? "날짜 또는 종목을 선택하세요"
+                   : selected.size() + "개 선택됨")
                 : days + "일 · " + visibleIds.size() + "종목");
+        count.setToolTipText(selectionMode
+                ? "날짜를 선택하면 현재 표시된 해당 날짜의 종목이 모두 선택됩니다."
+                : null);
 
         allButton.setText(
                 !selected.isEmpty()
@@ -891,10 +924,16 @@ public class HistoryDialog extends JPanel {
 
         if (selected.isEmpty()) return;
 
+        long selectedDays = records.stream()
+                .filter(record -> selected.contains(record.getRecordId()))
+                .map(WorkoutRecord::getWorkoutDate)
+                .distinct().count();
+
         if (!AppDialogs.confirm(
                 this,
                 "운동 기록 삭제",
-                selected.size() + "개의 운동 기록을 삭제할까요?",
+                selectedDays + "일의 선택된 운동 기록 " + selected.size()
+                        + "개와 포함된 모든 세트를 삭제할까요?",
                 "취소", "삭제", true)) return;
 
         int deleted = 0;
@@ -1069,10 +1108,15 @@ public class HistoryDialog extends JPanel {
     private static class SelectionIcon implements Icon {
 
         private final boolean checked;
+        private final boolean partial;
 
         SelectionIcon(boolean checked) {
+            this(checked, false);
+        }
 
+        SelectionIcon(boolean checked, boolean partial) {
             this.checked = checked;
+            this.partial = partial;
         }
 
         public int getIconWidth() { return 20; }
@@ -1095,7 +1139,12 @@ public class HistoryDialog extends JPanel {
                     BasicStroke.CAP_ROUND,
                     BasicStroke.JOIN_ROUND));
 
-            if (checked) {
+            if (partial) {
+                g.setColor(TEXT);
+                g.fillOval(1, 1, 18, 18);
+                g.setColor(BG);
+                g.drawLine(5, 10, 15, 10);
+            } else if (checked) {
 
                 g.setColor(TEXT);
                 g.fillOval(1, 1, 18, 18);

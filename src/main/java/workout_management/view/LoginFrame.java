@@ -214,6 +214,35 @@ public class LoginFrame extends JFrame {
 
         content.add(registerButton);
 
+        // 로그인 화면 정렬 통일
+        for (Component component : content.getComponents()) {
+
+            if (component instanceof JComponent jc) {
+                jc.setAlignmentX(Component.LEFT_ALIGNMENT);
+            }
+        }
+
+        logo.setHorizontalAlignment(SwingConstants.CENTER);
+        subtitle.setHorizontalAlignment(SwingConstants.CENTER);
+
+        logo.setMaximumSize(new Dimension(
+                Integer.MAX_VALUE, logo.getPreferredSize().height));
+
+        subtitle.setMaximumSize(new Dimension(
+                Integer.MAX_VALUE, subtitle.getPreferredSize().height));
+
+        idField.setMinimumSize(new Dimension(0, 46));
+        passwordField.setMinimumSize(new Dimension(0, 46));
+
+        loginButton.setMinimumSize(new Dimension(0, 46));
+
+        registerButton.setPreferredSize(new Dimension(300, 34));
+        registerButton.setMaximumSize(new Dimension(
+                Integer.MAX_VALUE, 34));
+
+        registerButton.setHorizontalAlignment(
+                SwingConstants.CENTER);
+
         // ========================================
         // 화면 중앙 정렬
         // ========================================
